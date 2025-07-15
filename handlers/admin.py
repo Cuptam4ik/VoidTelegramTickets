@@ -173,13 +173,16 @@ async def relay_admin_to_user(message: Message):
     # Получить user_id по ticket_id
     async with aiosqlite.connect('tickets.db') as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute('SELECT user_id FROM tickets WHERE id = ?', (ticket_id,))
+        cursor = await db.execute('SELECT user_id, status FROM tickets WHERE id = ?', (ticket_id,))
         ticket = await cursor.fetchone()
     
     if not ticket:
         return
     
     user_id = ticket['user_id']
+    # Проверяем статус тикета
+    if ticket['status'] == 'closed':
+        return
     
     # Проверяем, что отправитель является админом
     if message.from_user.id not in ADMIN_IDS:

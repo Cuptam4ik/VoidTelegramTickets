@@ -348,9 +348,23 @@ async def finish_ticket_creation(callback: CallbackQuery, state: FSMContext):
         f"📋 Категория: {data.get('category', 'Другое')}\n"
         f"🎯 Приоритет: {data.get('priority', 'Средний')}\n"
         f"📝 Описание: {data.get('description')}\n\n"
-        "⏳ Ожидайте ответа от администрации.",
-        reply_markup=get_user_ticket_keyboard(ticket_id)
+        "⏳ Ожидайте ответа от администрации."
     )
+
+    # Сразу переводим пользователя в режим чата с поддержкой по тикету
+    await state.set_state(UserChat.chatting_with_admin)
+    await state.update_data(ticket_id=ticket_id, message_thread_id=message_thread_id)
+    if message_thread_id:
+        await callback.message.answer(
+            f"✉️ Вы можете написать сообщение в тикет #{ticket_id}. Просто отправьте текст или файл:",
+            reply_markup=get_chat_back_keyboard()
+        )
+    else:
+        await callback.message.answer(
+            f"✉️ Вы можете написать сообщение в тикет #{ticket_id}. Просто отправьте текст или файл:\n\n⚠️ <i>Тема не была создана, сообщения будут отправляться в общий чат группы</i>",
+            reply_markup=get_chat_back_keyboard(),
+            parse_mode="HTML"
+        )
 
     if is_admin:
         from keyboards import get_admin_keyboard
@@ -441,13 +455,27 @@ async def relay_user_to_admin(message: Message, state: FSMContext):
         await state.clear()
         await message.answer("🔙 Вы вышли из режима чата", reply_markup=get_user_keyboard())
         return
-    
+
     data = await state.get_data()
     ticket_id = data.get('ticket_id')
     thread_id = data.get('message_thread_id')
-    
+
     if not ticket_id:
         await message.answer("❌ Ошибка: не найден ID тикета")
+        return
+
+    # Проверяем статус тикета
+    async with aiosqlite.connect('tickets.db') as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute('SELECT status FROM tickets WHERE id = ?', (ticket_id,))
+        row = await cursor.fetchone()
+    if row is None:
+        await state.clear()
+        await message.answer("❌ Тикет не найден. Вы больше не можете отправлять сообщения по этому тикету.", reply_markup=get_user_keyboard())
+        return
+    if row['status'] == 'closed':
+        await state.clear()
+        await message.answer("❌ Тикет закрыт. Вы больше не можете отправлять сообщения по этому тикету.", reply_markup=get_user_keyboard())
         return
     
     # Если тема не была создана, отправляем обычное сообщение в группу
